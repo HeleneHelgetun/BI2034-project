@@ -1,0 +1,80 @@
+# Load necessary libraries
+library(dplyr)
+library(ggplot2)
+library(vegan)
+
+# Load the cleaned dataset
+biomass <- read.csv("vegdata2024_transformed_cleaned_final.csv")
+
+# Remove rows where species_name is empty
+biomass <- biomass %>%
+  filter(species_name != "")
+
+# Summarize the total biomass by adding `biomass_OLD` and `biomass_NEW`
+biomass <- biomass %>%
+  mutate(
+    biomass_NEW = as.numeric(biomass_NEW),
+    total_biomass = biomass_OLD + biomass_NEW
+  )
+
+# Pivot the data to create a species-by-subplot matrix
+biomass_matrix <- biomass %>%
+  group_by(habitat, subplot, species_name) %>%
+  summarize(total_biomass = sum(total_biomass, na.rm = TRUE), .groups = 'drop') %>%
+  pivot_wider(names_from = species_name, values_from = total_biomass, values_fill = 0)
+
+# Calculate Shannon and Simpson indices for each subplot
+biomass_matrix <- biomass_matrix %>%
+  rowwise() %>%
+  mutate(
+    shannon = diversity(c_across(-c(habitat, subplot)), index = "shannon"),
+    simpson = diversity(c_across(-c(habitat, subplot)), index = "simpson")
+  )
+
+# Calculate mean and standard error for Shannon and Simpson indices by habitat
+mean_se_shannon <- biomass_matrix %>%
+  group_by(habitat) %>%
+  summarize(
+    mean_shannon = mean(shannon, na.rm = TRUE),
+    se_shannon = sd(shannon, na.rm = TRUE) / sqrt(n())
+  )
+
+mean_se_simpson <- biomass_matrix %>%
+  group_by(habitat) %>%
+  summarize(
+    mean_simpson = mean(simpson, na.rm = TRUE),
+    se_simpson = sd(simpson, na.rm = TRUE) / sqrt(n())
+  )
+
+# Set the habitat column as a factor with the specified order
+mean_se_shannon$habitat <- factor(mean_se_shannon$habitat, levels = c("BF", "TL", "DSH", "LH"))
+mean_se_simpson$habitat <- factor(mean_se_simpson$habitat, levels = c("BF", "TL", "DSH", "LH"))
+
+# Define consistent custom colors for each habitat
+custom_colors <- c("BF" = "#8B0000", "TL" = "#006400", "DSH" = "#00008B", "LH" = "#B8860B")
+
+# Plot the mean Shannon index by habitat with custom colors and error bars
+ggplot(mean_se_shannon, aes(x = habitat, y = mean_shannon, fill = habitat)) +
+  geom_bar(stat = "identity", alpha = 0.8) +
+  geom_errorbar(aes(ymin = mean_shannon - se_shannon, ymax = mean_shannon + se_shannon), 
+                width = 0.2, color = "black") +
+  scale_fill_manual(values = custom_colors) +
+  labs(title = "Mean Shannon Index by Habitat", y = "Mean Shannon Index", x = "Habitat") +
+  theme_minimal()
+
+# Plot the mean Simpson index by habitat with custom colors and error bars
+ggplot(mean_se_simpson, aes(x = habitat, y = mean_simpson, fill = habitat)) +
+  geom_bar(stat = "identity", alpha = 0.8) +
+  geom_errorbar(aes(ymin = mean_simpson - se_simpson, ymax = mean_simpson + se_simpson), 
+                width = 0.2, color = "black") +
+  scale_fill_manual(values = custom_colors) +
+  labs(title = "Mean Simpson Index by Habitat", y = "Mean Simpson Index", x = "Habitat") +
+  theme_minimal()
+
+# Print the exact mean values and standard errors for each habitat for Shannon Index
+print("Mean and SE for Shannon Index by Habitat:")
+print(mean_se_shannon)
+
+# Print the exact mean values and standard errors for each habitat for Simpson Index
+print("Mean and SE for Simpson Index by Habitat:")
+print(mean_se_simpson)
