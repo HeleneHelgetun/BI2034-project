@@ -1,0 +1,53 @@
+# Load required libraries
+library(ggplot2)
+
+# Load the biomass file
+env <- read.csv("transformed_soildata_2.csv")
+
+# Calculate mean soil moisture using the correct column names
+env$mean_soilmoisture <- env$soil_wet_weight_g - env$soil_dry_weight_after_sieving_g
+
+# Filter out rows with NA values in mean_soilmoisture
+soil_data_filtered <- env[!is.na(env$mean_soilmoisture), ]
+
+# Split data by habitat
+data_by_habitat <- split(soil_data_filtered, soil_data_filtered$habitat)
+
+# Calculate mean and standard error for each habitat manually
+means_se_list <- lapply(data_by_habitat, function(df) {
+  mean_soilmoisture <- mean(df$mean_soilmoisture, na.rm = TRUE)
+  sd_soilmoisture <- sd(df$mean_soilmoisture, na.rm = TRUE)
+  n <- nrow(df)
+  se_soilmoisture <- ifelse(n > 1, sd_soilmoisture / sqrt(n), NA)
+  data.frame(mean_soilmoisture = mean_soilmoisture, sd_soilmoisture = sd_soilmoisture, n = n, se_soilmoisture = se_soilmoisture)
+})
+
+# Combine results into a single data frame
+means_se <- do.call(rbind, means_se_list)
+means_se$habitat <- rownames(means_se)
+
+# Set habitat as a factor with the specified order
+means_se$habitat <- factor(means_se$habitat, levels = c("BF", "TL", "DSH", "LH"))
+
+# Print means_se to verify values
+print("Means and Standard Errors calculated manually:")
+print(means_se)
+
+# Plot the means as a bar plot with error bars if calculations are correct
+ggplot(data = means_se, aes(x = habitat, y = mean_soilmoisture, fill = habitat)) +
+  
+  # Bar plot for means
+  geom_bar(stat = "identity", alpha = 0.7) +
+  
+  # Add error bars with manually set ymin and ymax
+  geom_errorbar(aes(ymin = mean_soilmoisture - se_soilmoisture, ymax = mean_soilmoisture + se_soilmoisture), 
+                width = 0.2, color = "black") +
+  
+  # Manually define fill colors for each habitat
+  scale_fill_manual(values = c("BF" = "#8B0000", "TL" = "#006400", "DSH" = "#00008B", "LH" = "#B8860B")) +
+  
+  # Adjust labels and title
+  labs(x = "Habitat", y = "Mean Soil Moisture (g)", title = "Mean Soil Moisture for Each Habitat") +
+  
+  # Theme adjustments
+  theme_minimal()
