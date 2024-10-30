@@ -1,0 +1,84 @@
+# Install necessary packages (if not already installed)
+install.packages("vegan")
+install.packages("dplyr")
+install.packages("reshape2")
+install.packages("ggplot2")
+
+# Load the required libraries
+library(vegan)
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+
+# Step 1: Load the cleaned dataset
+veg_data <- read.csv("vegdata2024_transformed_cleaned_final.csv")
+
+# Step 2: Clean the column names (remove extra spaces)
+colnames(veg_data) <- trimws(colnames(veg_data))
+
+# Step 3: Ensure biomass_NEW is numeric
+veg_data$biomass_NEW <- as.numeric(as.character(veg_data$biomass_NEW))
+
+# Step 4: Create a community matrix
+# Pivot the table to create a community matrix where rows are habitats, columns are species, and values are biomass
+community_matrix <- veg_data %>%
+  dplyr::select(habitat, species_name, biomass_NEW) %>%
+  dcast(habitat ~ species_name, value.var = "biomass_NEW", fun.aggregate = sum, fill = 0)
+
+# Step 5: Handle missing values (replace NAs with 0)
+community_matrix[is.na(community_matrix)] <- 0
+
+# Step 6: Remove rows with only zeros (empty rows) from the community matrix
+community_matrix_cleaned <- community_matrix[rowSums(community_matrix[,-1]) > 0, ]
+
+# Step 7: Calculate Beta Diversity (Bray-Curtis)
+# Use the vegan package's `vegdist` function to calculate the Bray-Curtis dissimilarity matrix
+bray_curtis_dist <- vegdist(community_matrix_cleaned[,-1], method = "bray")
+
+# Convert to a distance matrix
+bray_curtis_matrix <- as.matrix(bray_curtis_dist)
+
+# Add habitat names as row and column labels for clarity
+rownames(bray_curtis_matrix) <- community_matrix_cleaned$habitat
+colnames(bray_curtis_matrix) <- community_matrix_cleaned$habitat
+
+# Step 8: Ensure the habitat order and clean any unwanted labels (if needed)
+# Remove any unwanted rows and columns, such as "?" or "Tl" (if present)
+bray_curtis_cleaned <- bray_curtis_matrix[!rownames(bray_curtis_matrix) %in% c('?', 'Tl'),
+                                          !colnames(bray_curtis_matrix) %in% c('?', 'Tl')]
+
+# Print the cleaned Bray-Curtis matrix
+print("Cleaned Bray-Curtis Dissimilarity Matrix:")
+print(bray_curtis_cleaned)
+
+# Optionally, save the cleaned table as a CSV
+write.csv(bray_curtis_cleaned, "cleaned_beta_diversity.csv")
+
+#### Distance Decay Model ####
+
+# Step 1: Define the spatial distances between habitats (100m difference between each)
+# Ensure the habitat order is BF -> TL -> DSH -> LH
+spatial_distance <- c("LH" = 0, "DSH" = 100, "TL" = 200, "BF" = 300)
+
+# Step 2: Prepare data for the distance-decay plot
+# Calculate pairwise spatial differences and Bray-Curtis dissimilarity values
+habitat_pairs <- combn(names(spatial_distance), 2, simplify = FALSE)
+spatial_diff <- sapply(habitat_pairs, function(x) abs(spatial_distance[x[1]] - spatial_distance[x[2]]))
+dissimilarity_values <- sapply(habitat_pairs, function(x) bray_curtis_cleaned[x[1], x[2]])
+
+# Step 3: Create a data frame for plotting
+decay_data <- data.frame(
+  Spatial_Distance = spatial_diff,
+  Bray_Curtis_Dissimilarity = dissimilarity_values
+)
+
+# Step 4: Create the distance-decay plot with a flipped x-axis
+ggplot(decay_data, aes(x = Spatial_Distance, y = Bray_Curtis_Dissimilarity)) +
+  geom_point(color = "black") +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  scale_x_reverse() +  # Flip the x-axis
+  labs(title = "Distance-Decay Model",
+       x = "Spatial Distance (meters, flipped)", 
+       y = "Dissimilarity (Bray-Curtis)") +
+  theme_minimal()
+
